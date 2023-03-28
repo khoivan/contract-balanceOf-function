@@ -13,35 +13,50 @@ const contract = new Contract([
 async function balanceHandler(t) {
   if (!t.wallet || !t.tokens || "object" != typeof t.tokens)
     throw Error("input invalid");
-  let e = {};
-  for (let a of t.tokens) {
-    if ("coin" == a) {
-      e[a] = await new Promise((e, a) => {
-        contract.currentProvider.send(
-          {
-            jsonrpc: "2.0",
-            method: "eth_getBalance",
-            params: [t.wallet, "latest"],
-            id: 2,
-          },
-          (t, n) => {
-            if (t) return a(t);
-            e(parseInt(n.result).toString());
-          }
-        );
-      });
-      continue;
+  let promisese = [];
+  let tokenArr = [];
+  for (let token of t.tokens) {
+    if (tokenArr.indexOf(token) > -1) continue;
+
+    tokenArr.push(token);
+    if ("coin" == token) {
+      promisese.push(
+        new Promise((resolve, reject) => {
+          contract.currentProvider.send(
+            {
+              jsonrpc: "2.0",
+              method: "eth_getBalance",
+              params: [t.wallet, "latest"],
+              id: 2,
+            },
+            (t, n) => {
+              if (t) return reject(t);
+              resolve(parseInt(n.result).toString());
+            }
+          );
+        })
+      );
+    } else {
+      contract.options.address = token;
+      promisese.push(
+        await contract.methods
+          .balanceOf(t.wallet)
+          .call({ from: t.wallet, gas: 3e6 })
+      );
     }
-    (contract.options.address = a),
-      (e[a] = await contract.methods
-        .balanceOf(t.wallet)
-        .call({ from: t.wallet, gas: 3e6 }));
   }
+
+  let allData = await Promise.all(promisese);
+  let mapData = {};
+  for (let i = 0; i < tokenArr.length; i++) {
+    mapData[tokenArr[i]] = allData[i];
+  }
+
   // sort
-  const sortable = Object.entries(e)
-  .sort(([,a],[,b]) => Number(a)-Number(b))
-  .reverse()
-  .reduce((r, [k, v]) => ({ ...r, [k]: v }), {});
+  const sortable = Object.entries(mapData)
+    .sort(([, a], [, b]) => Number(a) - Number(b))
+    .reverse()
+    .reduce((r, [k, v]) => ({ ...r, [k]: v }), {});
   return JSON.stringify(sortable);
 }
 http
